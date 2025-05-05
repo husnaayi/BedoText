@@ -5,7 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:intl/intl.dart';
-
+// bu satır yedekleme testi için
 void main() {
   runApp(MaterialApp(
     title: 'BedoText',
