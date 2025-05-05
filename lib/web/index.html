@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Speech to Text App</title>
+</head>
+<body>
+<script type="module">
+    import { initializeApp } from "firebase/app";
+    import { getFirestore } from "firebase/firestore";
+
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyAD8r0Kes19ASyC2ZnVmOpmm_10uc_9qdY",
+      authDomain: "bedobedo-c9be2.firebaseapp.com",
+      projectId: "bedobedo-c9be2",
+      storageBucket: "bedobedo-c9be2.firebasestorage.app",
+      messagingSenderId: "984400335408",
+      appId: "1:984400335408:web:bf856dcca405dea6b993f5"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+
+    // Initialize Firestore
+    const db = getFirestore(app);
+</script>
+
+<script src="main.dart.js" type="application/javascript"></script>
+</body>
+</html>
