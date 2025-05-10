@@ -5,35 +5,170 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:intl/intl.dart';
-// bu satır yedekleme testi için
-void main() {
-  runApp(MaterialApp(
-    title: 'BedoText',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      primarySwatch: Colors.brown,
-    ),
-    initialRoute: '/',
-    routes: {
-      '/': (context) => HomePage(),
-      '/highlights': (context) => HighlightsPage(),
-      '/saved': (context) => SavedPage(),
-    },
-  ));
-}
 
+void main() {
+    runApp(MaterialApp(
+      title: 'BedoText',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(primarySwatch: Colors.brown),
+      initialRoute: '/',
+      onGenerateRoute: (settings) {
+        if (settings.name == '/') {
+          return MaterialPageRoute(builder: (_) => HomePage());
+        } else if (settings.name == '/highlights') {
+          final args = settings.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => HighlightsPage(
+              highlightedWords: args['highlightedWords'],
+              selectedLanguage: args['selectedLanguage'],
+            ),
+          );
+        } else if (settings.name == '/saved') {
+          return MaterialPageRoute(builder: (_) => SavedPage());
+        }
+        return null;
+      },
+    ));
+  }
+
+  /// Maymun arka planını oluşturur.
 Widget buildMonkeyBackground() {
   return Center(
     child: Opacity(
       opacity: 0.1,
-      child: Text(
-        "🐵",
-        style: TextStyle(fontSize: 80),
-      ),
+      child: Text("\ud83d\udc35", style: TextStyle(fontSize: 80)),
     ),
   );
 }
 
+/// Vurgulanan kelimeleri göstermek için kullanılan sayfa.
+class HighlightsPage extends StatelessWidget {
+  final Map<String, int> highlightedWords;
+  final String selectedLanguage;
+
+  HighlightsPage({
+    Key? key,
+    required this.highlightedWords,
+    required this.selectedLanguage,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Certain Words', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.brown[700],
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      body: Stack(
+        children: [
+          buildMonkeyBackground(),
+          ListView(
+            padding: EdgeInsets.all(16),
+            children: highlightedWords.entries.map((entry) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${entry.key}: ',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                          fontSize: 18,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '${entry.value} kez',
+                        style: TextStyle(
+                          color: Colors.grey[800],
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Kaydedilen konuşmaları göstermek için kullanılan sayfa.
+class SavedPage extends StatefulWidget {
+  @override
+  _SavedPageState createState() => _SavedPageState();
+}
+
+class _SavedPageState extends State<SavedPage> {
+  List<Map<String, dynamic>> _savedConversations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedConversations();
+  }
+
+  Future<void> _loadSavedConversations() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> saved = prefs.getStringList('saved_conversations') ?? [];
+
+    setState(() {
+      _savedConversations = saved.map((item) {
+        Map<String, dynamic> parsed = json.decode(item);
+        return {
+          'text': parsed['text'] ?? '',
+          'date': parsed['date'] ?? ''
+        };
+      }).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Saved Conversations', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.brown[700],
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      body: Stack(
+        children: [
+          buildMonkeyBackground(),
+          ListView.builder(
+            itemCount: _savedConversations.length,
+            itemBuilder: (context, index) {
+              final item = _savedConversations[index];
+              return ListTile(
+                title: Text(item['text'] ?? 'No text available'),
+                subtitle: Text(item['date'] ?? 'No date available'),
+                trailing: IconButton(
+                  icon: Icon(Icons.delete, color: Colors.pink),
+                  onPressed: () => _deleteConversation(index),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteConversation(int index) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    _savedConversations.removeAt(index);
+    List<String> updatedList = _savedConversations.map((item) => json.encode({
+      'text': item['text'],
+      'date': item['date'],
+    })).toList();
+    await prefs.setStringList('saved_conversations', updatedList);
+    setState(() {});
+  }
+}
 class HomePage extends StatefulWidget {
   @override
   _HomePageState createState() => _HomePageState();
@@ -46,6 +181,12 @@ class _HomePageState extends State<HomePage> {
   String _recognizedText = "";
   final Map<String, int> _highlightedWords = {};
   Map<String, dynamic> _keywords = {};
+  // Duygu durumunu saklamak için Map
+  Map<String, String> _currentEmotion = {
+    'tr_TR': 'Bilinmiyor',
+    'en_US': 'Unknown',
+  };
+  final EmotionAnalysis _emotionAnalysis = EmotionAnalysis();
 
   @override
   void initState() {
@@ -72,6 +213,7 @@ class _HomePageState extends State<HomePage> {
           setState(() {
             _recognizedText = text;
             _extractHighlights();
+            _currentEmotion = _emotionAnalysis.analyzeEmotion(text, _selectedLanguage);
           });
         },
         localeId: _selectedLanguage,
@@ -87,9 +229,7 @@ class _HomePageState extends State<HomePage> {
 
   void _extractHighlights() {
     _highlightedWords.clear();
-
     String cleanedText = cleanWord(_recognizedText.toLowerCase());
-
     final List<String> allKeywords = [];
     _keywords.forEach((key, value) {
       for (var item in value) {
@@ -100,7 +240,6 @@ class _HomePageState extends State<HomePage> {
         }
       }
     });
-
     for (var keyword in allKeywords) {
       String normalizedKeyword = normalizeWord(cleanWord(keyword));
       int count = 0;
@@ -118,10 +257,15 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _saveConversation() async {
     if (_recognizedText.trim().isEmpty) return;
-
     SharedPreferences prefs = await SharedPreferences.getInstance();
     List<String> savedConversations = prefs.getStringList('saved_conversations') ?? [];
-    savedConversations.add(_recognizedText.trim());
+
+    Map<String, String> conversation = {
+      'text': _recognizedText,
+      'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+    };
+
+    savedConversations.add(json.encode(conversation));
     await prefs.setStringList('saved_conversations', savedConversations);
   }
 
@@ -151,41 +295,69 @@ class _HomePageState extends State<HomePage> {
   }
 
   String cleanWord(String word) {
-    String cleaned = word.trim()
-        .replaceAll(RegExp(r'[^a-zA-ZğüşöçıİĞÜŞÖÇ0-9\s]'), '')
-        .replaceAll(RegExp(r'\s+'), ' ');
-
-    if (_selectedLanguage == 'tr_TR') {
-      return toBeginningOfSentenceCase(cleaned.toLowerCase())!.toLowerCase();
-    } else {
-      return cleaned.toLowerCase();
-    }
+    String cleaned = word.trim().replaceAll(RegExp(r'[^a-zA-ZğüşöçıİĞÜŞÖÇ0-9\s]'), '').replaceAll(RegExp(r'\s+'), ' ');
+    return _selectedLanguage == 'tr_TR' ? toBeginningOfSentenceCase(cleaned.toLowerCase())!.toLowerCase() : cleaned.toLowerCase();
   }
 
   String normalizeWord(String word) {
     word = word.toLowerCase().trim();
-
     List<String> suffixes = [
       'lerim', 'larım', 'ler', 'lar',
       'imiz', 'ımız', 'unuz', 'ünüz', 'miz', 'nız', 'niz',
-      'im', 'ım', 'um', 'üm',
-      'in', 'ın', 'un', 'ün',
-      'yi', 'yı', 'yu', 'yü',
-      'ye', 'ya',
-      'de', 'da', 'te', 'ta',
-      'den', 'dan', 'ten', 'tan',
-      'le', 'la',
+      'im', 'ım', 'um', 'üm', 'in', 'ın', 'un', 'ün',
+      'yi', 'yı', 'yu', 'yü', 'ye', 'ya',
+      'de', 'da', 'te', 'ta', 'den', 'dan', 'ten', 'tan', 'le', 'la',
       'mi', 'mı', 'mu', 'mü',
     ];
-
     for (var suffix in suffixes) {
       if (word.endsWith(suffix)) {
         word = word.substring(0, word.length - suffix.length);
         break;
       }
     }
-
     return word;
+  }
+
+  // Duygu durumuna göre renk döndüren fonksiyon
+  Color _getEmotionColor() {
+    String emotion = _currentEmotion[_selectedLanguage] ?? 'Bilinmiyor';
+    switch (emotion) {
+      case "Mutlu":
+      case "Happiness":
+        return Colors.green.withOpacity(0.3);
+      case "Korku":
+      case "Fear":
+        return Colors.red.withOpacity(0.3);
+      case "Kızgınlık":
+      case "Anger":
+        return Colors.purple.withOpacity(0.3);
+      case "Kaygı":
+      case "Anxiety":
+        return Colors.orange.withOpacity(0.3);
+      case "Heyecanlı":
+      case "Excited":
+        return Colors.yellow.withOpacity(0.3);
+      case "Üzgün":
+      case "Upset":
+        return Colors.blue.withOpacity(0.3);
+      case "Şaşkın":
+      case "Shocked":
+        return Colors.limeAccent.withOpacity(0.3);
+      case "Sıkılmış":
+      case "Bored":
+        return Colors.grey.withOpacity(0.3);
+      case "Yorgun":
+      case "Tired":
+        return Colors.brown.withOpacity(0.3);
+      case "Rahatlamış":
+      case "Calmness":
+        return Colors.pink.withOpacity(0.3);
+      case "Memnun":
+      case "Pleased":
+        return Colors.deepPurple.withOpacity(0.3);
+      default:
+        return Colors.transparent;
+    }
   }
 
   @override
@@ -219,7 +391,10 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {
               if (value == 'highlights') {
-                Navigator.pushNamed(context, '/highlights', arguments: _highlightedWords);
+                Navigator.pushNamed(context, '/highlights', arguments: {
+                  'highlightedWords': _highlightedWords,
+                  'selectedLanguage': _selectedLanguage,
+                });
               } else if (value == 'saved') {
                 Navigator.pushNamed(context, '/saved');
               }
@@ -227,23 +402,11 @@ class _HomePageState extends State<HomePage> {
             itemBuilder: (context) => [
               PopupMenuItem(
                 value: 'highlights',
-                child: Row(
-                  children: [
-                    Icon(LucideIcons.list, color: Colors.brown),
-                    SizedBox(width: 8),
-                    Text("Highlights"),
-                  ],
-                ),
+                child: Row(children: [Icon(LucideIcons.list, color: Colors.brown), SizedBox(width: 8), Text("Highlights")]),
               ),
               PopupMenuItem(
                 value: 'saved',
-                child: Row(
-                  children: [
-                    Icon(Icons.history, color: Colors.brown),
-                    SizedBox(width: 8),
-                    Text("Saved"),
-                  ],
-                ),
+                child: Row(children: [Icon(Icons.history, color: Colors.brown), SizedBox(width: 8), Text("Saved")]),
               ),
             ],
           ),
@@ -251,19 +414,7 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Stack(
         children: [
-          Center(
-            child: Opacity(
-              opacity: 0.15,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (index) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text("🐵", style: TextStyle(fontSize: 150)),
-                )),
-              ),
-            ),
-          ),
+          buildMonkeyBackground(),
           Padding(
             padding: EdgeInsets.all(16.0),
             child: Column(
@@ -274,8 +425,12 @@ class _HomePageState extends State<HomePage> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
-                        BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 8, spreadRadius: 2),
+                        BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 8, spreadRadius: 2)
                       ],
+                      border: Border.all(
+                        color: _getEmotionColor(),
+                        width: 4.0,
+                      ),
                     ),
                     padding: EdgeInsets.all(16),
                     child: SingleChildScrollView(
@@ -288,6 +443,12 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
+                Text(
+                  _selectedLanguage == 'tr_TR'
+                      ? "Anlık Ruh Hali: ${_currentEmotion['tr_TR'] ?? 'Bilinmiyor'}" // Burada kullanılıyor
+                      : "Current Emotion: ${_currentEmotion['en_US'] ?? 'Unknown'}",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -297,10 +458,7 @@ class _HomePageState extends State<HomePage> {
             child: FloatingActionButton(
               onPressed: _isListening ? _stopListening : _startListening,
               backgroundColor: Colors.brown[700],
-              child: Icon(
-                _isListening ? LucideIcons.stopCircle : LucideIcons.mic,
-                color: Colors.white,
-              ),
+              child: Icon(_isListening ? LucideIcons.stopCircle : LucideIcons.mic, color: Colors.white),
             ),
           ),
         ],
@@ -308,97 +466,119 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+class EmotionAnalysis {
+  final Map<String, String> turkishEmotions = {
+    "mutluyum": "Mutlu",
+    "sevinçliyim": "Mutlu",
+    "keyifliyim": "Mutlu",
+    "gülüyorum": "Mutlu",
+    "korkuyorum": "Korku",
+    "tedirginim": "Korku",
+    "sinirliyim": "Kızgınlık",
+    "öfkeliyim": "Kızgınlık",
+    "gerginim": "Kızgınlık",
+    "heyecanlıyım": "Heyecanlı",
+    "coşkuluyum": "Heyecanlı",
+    "kaygılıyım": "Kaygı",
+    "endişeliyim": "Kaygı",
+    "üzgünüm": "Üzgün",
+    "kederliyim": "Üzgün",
+    "mutsuzum": "Üzgün",
+    "şaşkınım": "Şaşkın",
+    "şaşırdım": "Şaşkın",
+    "sıkıldım": "Sıkılmış",
+    "yoruldum": "Yorgun",
+    "rahatladım": "Rahatlamış",
+    "memnunum": "Memnun",
+  };
+  final Map<String, String> englishEmotions = {
+    "happy": "Happiness",
+    "glad": "Happiness",
+    "joyful": "Happiness",
+    "scared": "Fear",
+    "worried": "Fear",
+    "nervous": "Fear",
+    "angry": "Anger",
+    "furious": "Anger",
+    "tense": "Anger",
+    "excited": "Excited",
+    "thrilled": "Excited",
+    "anxious": "Anxiety",
+    "sad": "Upset",
+    "sorrowful": "Upset",
+    "blue": "Upset",
+    "surprised": "Shocked",
+    "astonished": "Shocked",
+    "bored": "Bored",
+    "tired": "Tired",
+    "relaxed": "Calmness",
+    "pleased": "Pleased",
+    "i am happy": "Happiness",
+    "i'm happy": "Happiness",
+    "i feel happy": "Happiness",
+    "i am scared": "Fear",
+    "i'm scared": "Fear",
+    "i feel scared": "Fear",
+    "i am angry": "Anger",
+    "i'm angry": "Anger",
+    "i feel angry": "Anger",
+    "i am excited": "Excited",
+    "i'm excited": "Excited",
+    "i feel excited": "Excited",
+    "i am anxious": "Anxiety",
+    "i'm anxious": "Anxiety",
+    "i feel anxious": "Anxiety",
+    "i am sad": "Upset",
+    "i'm sad": "Upset",
+    "i feel sad": "Upset",
+    "i am surprised": "Shocked",
+    "i'm surprised": "Shocked",
+    "i feel surprised": "Shocked",
+    "i am bored": "Bored",
+    "i'm bored": "Bored",
+    "i feel bored": "Bored",
+    "i am tired": "Tired",
+    "i'm tired": "Tired",
+    "i feel tired": "Tired",
+    "i am relaxed": "Calmness",
+    "i'm relaxed": "Calmness",
+    "i feel relaxed": "Calmness",
+    "i am pleased": "Pleased",
+    "i'm pleased": "Pleased",
+  };
 
-class HighlightsPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final Map<String, int> highlightedWords =
-    ModalRoute.of(context)!.settings.arguments as Map<String, int>;
+  /// Verilen metindeki duyguyu analiz yeri
+  Map<String, String> analyzeEmotion(String text, String languageCode) {
+    final emotions = languageCode == 'tr_TR' ? turkishEmotions : englishEmotions;
+    final lowerCaseText = text.toLowerCase();
+    final words = lowerCaseText.split(RegExp(r'\s+'));
+    String detectedEmotion = languageCode == 'tr_TR' ? "Bilinmiyor" : "Unknown"; // Default
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Certain Words',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.brown[700],
-        iconTheme: IconThemeData(color: Colors.white),
-      ),
-      body: Stack(
-        children: [
-          buildMonkeyBackground(),
-          ListView(
-            children: highlightedWords.entries.map((entry) {
-              return ListTile(
-                title: Text('${entry.key}'),
-                trailing: Text('${entry.value} X'),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
+    if (languageCode == 'en_US') {
+      for (var emotion in englishEmotions.keys) {
+        if (lowerCaseText.contains(emotion)) {
+          detectedEmotion = englishEmotions[emotion]!;
+          break;
+        }
+      }
+      if (detectedEmotion == (languageCode == 'tr_TR' ? "Bilinmiyor" : "Unknown")) { // Kelime bazlı kontrol
+        for (var word in words) {
+          if (englishEmotions.containsKey(word)) {
+            detectedEmotion = englishEmotions[word]!;
+            break;
+          }
+        }
+      }
+
+    } else {
+      for (var word in words) {
+        if (emotions.containsKey(word)) {
+          detectedEmotion = emotions[word]!;
+          break;
+        }
+      }
+    }
+    return {languageCode: detectedEmotion};
   }
 }
 
-class SavedPage extends StatefulWidget {
-  @override
-  _SavedPageState createState() => _SavedPageState();
-}
-
-class _SavedPageState extends State<SavedPage> {
-  List<String> _savedConversations = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSavedConversations();
-  }
-
-  Future<void> _loadSavedConversations() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> saved = prefs.getStringList('saved_conversations') ?? [];
-    setState(() {
-      _savedConversations = saved;
-    });
-  }
-
-  Future<void> _deleteConversation(int index) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _savedConversations.removeAt(index);
-    });
-    await prefs.setStringList('saved_conversations', _savedConversations);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Saved Conversations',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.brown[700],
-        iconTheme: IconThemeData(color: Colors.white),
-      ),
-      body: Stack(
-        children: [
-          buildMonkeyBackground(),
-          ListView.builder(
-            itemCount: _savedConversations.length,
-            itemBuilder: (context, index) {
-              return ListTile(
-                title: Text(_savedConversations[index]),
-                trailing: IconButton(
-                  icon: Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => _deleteConversation(index),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
