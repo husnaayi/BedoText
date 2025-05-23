@@ -5,6 +5,12 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'package:universal_html/html.dart' as html;
+import 'package:flutter/foundation.dart';
 
 void main() {
     runApp(MaterialApp(
@@ -175,6 +181,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  String _lastRecognizedText = '';
   late stt.SpeechToText _speech;
   bool _isListening = false;
   String _selectedLanguage = 'tr_TR';
@@ -186,7 +193,62 @@ class _HomePageState extends State<HomePage> {
     'tr_TR': 'Bilinmiyor',
     'en_US': 'Unknown',
   };
+
+  String getMessage(String tr, String en) {
+    return _selectedLanguage == 'tr_TR' ? tr : en;
+  }
+
+
   final EmotionAnalysis _emotionAnalysis = EmotionAnalysis();
+  Future<void> _createPdfFromText(BuildContext context) async {
+    final pdf = pw.Document();
+    String fullText = _lastRecognizedText;
+
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) {
+          return pw.Center(
+            child: pw.Text(
+              fullText,
+              style: pw.TextStyle(fontSize: 16),
+            ),
+          );
+        },
+      ),
+    );
+
+    try {
+      final bytes = await pdf.save();
+
+      if (kIsWeb) {
+        // Web: PDF indir
+        final blob = html.Blob([bytes]);
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute("download", "konusma.pdf")
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(getMessage("PDF indirildi.", "PDF downloaded."))),
+        );
+      } else {
+        // Mobil: dosyaya kaydet
+        final outputDir = await getApplicationDocumentsDirectory();
+        final file = File("${outputDir.path}/konusma.pdf");
+        await file.writeAsBytes(bytes);
+        await OpenFile.open(file.path);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(getMessage("PDF oluşturuldu: ${file.path}", "PDF created at: ${file.path}"))),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(getMessage("PDF oluşturulamadı: $e", "Failed to create PDF: $e"))),
+      );
+    }
+  }
+
 
   @override
   void initState() {
@@ -222,10 +284,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _stopListening() async {
-    setState(() => _isListening = false);
+    setState(() {
+      _isListening = false;
+      _lastRecognizedText = _recognizedText; // << EKLENDİ!
+    });
     await _speech.stop();
     await _saveConversation();
   }
+
 
   void _extractHighlights() {
     _highlightedWords.clear();
@@ -452,6 +518,24 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
+          // 🔽 PDF'e Çevir Butonu
+          Positioned(
+            bottom: 90,
+            right: MediaQuery.of(context).size.width / 2 - 85,
+            child: ElevatedButton.icon(
+              onPressed: () => _createPdfFromText(context),
+              icon: Icon(Icons.picture_as_pdf, color: Colors.white),
+              label: Text(
+                getMessage("PDF'e Çevir", "Convert to PDF"), // ← Burada dil seçimi yapılıyor
+                style: TextStyle(color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.brown[700],
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
           Positioned(
             bottom: 20,
             right: MediaQuery.of(context).size.width / 2 - 30,
@@ -466,8 +550,10 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+
 class EmotionAnalysis {
   final Map<String, String> turkishEmotions = {
+    "mutlu": "Mutlu",
     "mutluyum": "Mutlu",
     "sevinçliyim": "Mutlu",
     "keyifliyim": "Mutlu",
@@ -547,30 +633,26 @@ class EmotionAnalysis {
     "i'm pleased": "Pleased",
   };
 
-  /// Verilen metindeki duyguyu analiz yeri
   Map<String, String> analyzeEmotion(String text, String languageCode) {
-    final emotions = languageCode == 'tr_TR' ? turkishEmotions : englishEmotions;
+    final emotions = languageCode == 'tr_TR'
+        ? turkishEmotions
+        : englishEmotions;
     final lowerCaseText = text.toLowerCase();
     final words = lowerCaseText.split(RegExp(r'\s+'));
-    String detectedEmotion = languageCode == 'tr_TR' ? "Bilinmiyor" : "Unknown"; // Default
 
-    if (languageCode == 'en_US') {
-      for (var emotion in englishEmotions.keys) {
-        if (lowerCaseText.contains(emotion)) {
-          detectedEmotion = englishEmotions[emotion]!;
-          break;
-        }
-      }
-      if (detectedEmotion == (languageCode == 'tr_TR' ? "Bilinmiyor" : "Unknown")) { // Kelime bazlı kontrol
-        for (var word in words) {
-          if (englishEmotions.containsKey(word)) {
-            detectedEmotion = englishEmotions[word]!;
-            break;
-          }
-        }
-      }
+    String detectedEmotion = languageCode == 'tr_TR'
+        ? "Bilinmiyor"
+        : "Unknown"; // Varsayılan
 
-    } else {
+    for (var emotion in emotions.keys) {
+      if (lowerCaseText.contains(emotion)) {
+        detectedEmotion = emotions[emotion]!;
+        break;
+      }
+    }
+
+    if (detectedEmotion ==
+        (languageCode == 'tr_TR' ? "Bilinmiyor" : "Unknown")) {
       for (var word in words) {
         if (emotions.containsKey(word)) {
           detectedEmotion = emotions[word]!;
@@ -578,7 +660,7 @@ class EmotionAnalysis {
         }
       }
     }
+
     return {languageCode: detectedEmotion};
   }
 }
-
