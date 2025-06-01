@@ -233,7 +233,6 @@ class _HomePageState extends State<HomePage> {
           SnackBar(content: Text(getMessage("PDF indirildi.", "PDF downloaded."))),
         );
       } else {
-        // Mobil: dosyaya kaydet
         final outputDir = await getApplicationDocumentsDirectory();
         final file = File("${outputDir.path}/konusma.pdf");
         await file.writeAsBytes(bytes);
@@ -286,7 +285,7 @@ class _HomePageState extends State<HomePage> {
   void _stopListening() async {
     setState(() {
       _isListening = false;
-      _lastRecognizedText = _recognizedText; // << EKLENDİ!
+      _lastRecognizedText = _recognizedText;
     });
     await _speech.stop();
     await _saveConversation();
@@ -511,7 +510,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 Text(
                   _selectedLanguage == 'tr_TR'
-                      ? "Anlık Ruh Hali: ${_currentEmotion['tr_TR'] ?? 'Bilinmiyor'}" // Burada kullanılıyor
+                      ? "Anlık Ruh Hali: ${_currentEmotion['tr_TR'] ?? 'Bilinmiyor'}"
                       : "Current Emotion: ${_currentEmotion['en_US'] ?? 'Unknown'}",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
@@ -526,7 +525,7 @@ class _HomePageState extends State<HomePage> {
               onPressed: () => _createPdfFromText(context),
               icon: Icon(Icons.picture_as_pdf, color: Colors.white),
               label: Text(
-                getMessage("PDF'e Çevir", "Convert to PDF"), // ← Burada dil seçimi yapılıyor
+                getMessage("PDF'e Çevir", "Convert to PDF"),
                 style: TextStyle(color: Colors.white),
               ),
               style: ElevatedButton.styleFrom(
